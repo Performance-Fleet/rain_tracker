@@ -357,7 +357,6 @@ def adicionar_coordenadas(df_municipios):
 
     df_geo["latitude"] = pd.to_numeric(df_geo["latitude"], errors="coerce")
     df_geo["longitude"] = pd.to_numeric(df_geo["longitude"], errors="coerce")
-
     df_geo["timezone"] = df_geo["timezone"].fillna("America/Sao_Paulo")
 
     return df_geo
@@ -679,7 +678,8 @@ metrica_tabela = st.sidebar.selectbox(
 
 
 # =========================
-# FILTRO DE REGIÃO
+# FILTROS COMEÇANDO VAZIOS
+# Se ficar vazio, considera todos.
 # =========================
 
 regioes_disponiveis = sorted(municipios["regiao"].dropna().unique().tolist())
@@ -687,7 +687,8 @@ regioes_disponiveis = sorted(municipios["regiao"].dropna().unique().tolist())
 regioes_selecionadas = st.sidebar.multiselect(
     "Regiões",
     options=regioes_disponiveis,
-    default=regioes_disponiveis
+    default=[],
+    placeholder="Todas"
 )
 
 df_filtrado = municipios.copy()
@@ -698,16 +699,13 @@ if regioes_selecionadas:
     ].copy()
 
 
-# =========================
-# FILTRO DE UF
-# =========================
-
 ufs_disponiveis = sorted(df_filtrado["uf"].dropna().unique().tolist())
 
 ufs_selecionadas = st.sidebar.multiselect(
     "UFs",
     options=ufs_disponiveis,
-    default=ufs_disponiveis
+    default=[],
+    placeholder="Todas"
 )
 
 if ufs_selecionadas:
@@ -716,16 +714,13 @@ if ufs_selecionadas:
     ].copy()
 
 
-# =========================
-# FILTRO DE MUNICÍPIO
-# =========================
-
 municipios_disponiveis = sorted(df_filtrado["municipio"].dropna().unique().tolist())
 
 municipios_selecionados = st.sidebar.multiselect(
-    "Municípios específicos opcional",
+    "Municípios específicos",
     options=municipios_disponiveis,
-    default=[]
+    default=[],
+    placeholder="Todos"
 )
 
 if municipios_selecionados:
@@ -734,28 +729,9 @@ if municipios_selecionados:
     ].copy()
 
 
-# =========================
-# MODO TESTE
-# =========================
-
-modo_teste = st.sidebar.checkbox(
-    "Modo teste",
-    value=True,
-    help="Limita a quantidade de municípios para testar antes de rodar tudo."
-)
-
-qtd_teste = st.sidebar.number_input(
-    "Qtd. municípios no teste",
-    min_value=1,
-    max_value=1000,
-    value=50,
-    step=10
-)
-
-if modo_teste:
-    df_execucao = df_filtrado.head(int(qtd_teste)).copy()
-else:
-    df_execucao = df_filtrado.copy()
+# Agora não tem modo teste.
+# Se nenhum filtro for selecionado, roda todos os municípios.
+df_execucao = df_filtrado.copy()
 
 
 # =========================
@@ -774,6 +750,10 @@ col5.metric("Métrica", metrica_tabela)
 
 st.caption(
     f"Período considerado: {data_inicio.strftime('%d/%m/%Y')} até {data_fim.strftime('%d/%m/%Y')}"
+)
+
+st.info(
+    "Se nenhum filtro for selecionado, o app considera todos os municípios disponíveis na base do IBGE."
 )
 
 st.dataframe(
