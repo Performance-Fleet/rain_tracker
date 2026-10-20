@@ -48,9 +48,10 @@ DIAS = int(os.environ.get("DIAS") or 15)
 
 BATCH_SIZE_CHUVA = 40
 SLEEP_GEOCODING = 0.2
-# A Open-Meteo gratuita limita ~600 chamadas/minuto e cada município do batch conta
-# como uma chamada; 5s entre batches de 40 mantém abaixo do limite.
-SLEEP_CHUVA = 5
+# A Open-Meteo gratuita limita 600 chamadas/minuto, 5.000/hora e 10.000/dia, e cada
+# município do batch conta como uma chamada. 40s entre batches de 40 dá ~3.600/hora,
+# então o Brasil inteiro (~5.570) leva ~1h30 sem estourar o limite por hora.
+SLEEP_CHUVA = 40
 SHEETS_CHUNK_ROWS = 10000
 
 COLUNAS_COORDENADAS = [
@@ -106,9 +107,12 @@ def request_with_retry(url, params=None, max_retries=5, timeout=90):
 
             log(f"Tentativa {tentativa} falhou. Status: {response.status_code} | {response.text[:300]}")
 
-            # Limite de requisições: espera o minuto virar antes de tentar de novo
+            # Limite de requisições: espera a janela do limite virar antes de tentar de novo
             if response.status_code == 429:
-                time.sleep(65)
+                if "Daily" in response.text:
+                    break
+
+                time.sleep(600 if "Hourly" in response.text else 65)
                 continue
 
         except Exception as e:
@@ -244,7 +248,7 @@ def geocodificar_municipio(municipio, uf, estado):
 
 def adicionar_coordenadas(df_municipios, cache):
     """Usa o cache de coordenadas e geocodifica só os municípios que faltam.
-    Retorna (df_com_coordenadas, cache_atualizado, houve_novos)."""
+    Retorna (df_com_coordenadas, cache_atualizado, houve_novos, interrompido)."""
 
     cache = cache.copy()
     cache["latitude"] = pd.to_numeric(cache["latitude"], errors="coerce")
@@ -257,6 +261,7 @@ def adicionar_coordenadas(df_municipios, cache):
     log(f"Coordenadas em cache: {len(cache)} | A geocodificar: {total}")
 
     novos = []
+    interrompido = False
 
     for i, row in enumerate(faltantes.itertuples(index=False), start=1):
         # Se estourar o limite da API, guarda o que já foi feito e completa no próximo run
@@ -264,6 +269,7 @@ def adicionar_coordenadas(df_municipios, cache):
             geo = geocodificar_municipio(row.municipio, row.uf, row.estado)
         except RuntimeError as e:
             log(f"Geocodificação interrompida em {i}/{total}: {e}")
+            interrompido = True
             break
 
         geo["codigo_ibge"] = row.codigo_ibge
@@ -284,7 +290,7 @@ def adicionar_coordenadas(df_municipios, cache):
     df_geo = df_municipios.merge(cache, on="codigo_ibge", how="left")
     df_geo["timezone"] = df_geo["timezone"].replace("", pd.NA).fillna("America/Sao_Paulo")
 
-    return df_geo, cache, bool(novos)
+    return df_geo, cache, bool(novos), interrompido
 
 
 # =========================
@@ -484,7 +490,7 @@ def main():
         planilha = conectar_planilha()
         cache = ler_coordenadas_sheets(planilha)
 
-    municipios_geo, cache, houve_novos = adicionar_coordenadas(municipios, cache)
+    municipios_geo, cache, houve_novos, geocoding_interrompido = adicionar_coordenadas(municipios, cache)
 
     # Salva o cache antes de buscar a chuva, para não perder a geocodificação se algo falhar depois
     if houve_novos:
@@ -505,6 +511,10 @@ def main():
 
     # USER_ENTERED para a planilha reconhecer as datas; números vão como número
     escrever_aba(planilha, ABA_CHUVA, chuva, value_input_option="USER_ENTERED")
+
+    # Grava o parcial, mas sinaliza falha para não parecer que a base está completa
+    if geocoding_interrompido:
+        raise RuntimeError("Geocodificação interrompida: base gravada sem todos os municípios.")
 
     log("Sync finalizado.")
 
