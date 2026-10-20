@@ -1,0 +1,33 @@
+name: Sync chuva -> Google Sheets
+
+on:
+  schedule:
+    # Todo dia às 07:00 de Brasília (10:00 UTC)
+    - cron: "0 10 * * *"
+  workflow_dispatch:
+    inputs:
+      ufs:
+        description: "UFs separadas por vírgula (vazio = todas)"
+        required: false
+        default: ""
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependências
+        run: pip install pandas requests gspread
+
+      - name: Rodar sync
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          UFS: ${{ github.event.inputs.ufs }}
+        run: python sync_sheets.py
